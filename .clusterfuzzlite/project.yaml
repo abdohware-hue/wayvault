@@ -1,0 +1,7 @@
+language: c++
+
+fuzz_targets:
+  - container_fuzzer
+  - tile_fuzzer
+  - metadata_fuzzer
+  - stream_fuzzer
