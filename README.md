@@ -1,57 +1,23 @@
 # WayVault
 
-WayVault is a small C++17 library and command-line utility for reading a compact
-binary tile vault format used by offline map and scene tooling. A vault contains
-section tables, a string table, tile descriptors, packed image blocks, metadata,
-and optional command streams used by tooling to preview several tiles through a
-shared decode cache.
+WayVault is a C++17 library and command-line utility for maintaining compact offline tile vaults. It reads a binary vault format used by small map preview tools to keep tile payloads, string tables, metadata, command streams, and layout notes together in one portable file.
 
-This repository is intentionally structured like a real parser/decoder project:
+The project is organized as normal application code rather than a single parser file. The core library handles binary reading, section indexing, tile decoding, metadata summaries, route planning helpers, geometry utilities, atlas packing, label placement, text search, style resolution, image operations, storage planning, journal replay, and report rendering. The command-line tools use the same library APIs as downstream applications.
 
-- `include/wayvault/` contains public library headers.
-- `src/` contains parser, index, metadata, tile decoding, cache, stream, and CLI logic.
-- `tools/wayvault_dump.cpp` provides a normal command-line entry point.
-- `tests/` contains basic deterministic behavior tests.
-- `fuzz/` contains libFuzzer harnesses that call real library APIs.
-- `.clusterfuzzlite/` contains the ClusterFuzzLite build integration.
+## Vault format
 
-## Format overview
+A `.wvl` file starts with a fixed header, followed by a section table and typed sections. Common sections include:
 
-A `.wvl` file starts with a 16-byte header:
-
-```text
-magic:         4 bytes, "WVLT"
-version:       uint16 little-endian
-flags:         uint16 little-endian
-section_count: uint16 little-endian
-reserved:      uint16 little-endian
-table_offset:  uint32 little-endian
-```
-
-The section table contains 20-byte entries:
-
-```text
-tag:        uint32 little-endian, four ASCII bytes
-offset:     uint32 little-endian, absolute file offset
-size:       uint32 little-endian
-count_hint: uint32 little-endian
-flags:      uint32 little-endian
-```
-
-Common section tags are:
-
-- `STRS`: string table.
-- `TILE`: fixed-size tile records.
-- `DATA`: tile payload bytes.
+- `STRS`: null-terminated string table entries.
+- `TILE`: fixed-size tile records with payload offsets.
+- `DATA`: encoded tile payloads.
 - `META`: metadata key/value references.
 - `CMDS`: preview command stream.
-- `INDX`: optional index records.
+- `INDX`: optional lookup records.
 
-The parser validates normal container boundaries and throws `wayvault::ParseError`
-for ordinary malformed input. Fuzz harnesses catch expected parser errors and do
-not treat them as crashes.
+The format is intentionally simple to embed in offline tools, but the library keeps separate modules for parsing, validation, caching, reporting, and planning so callers can use only the parts they need.
 
-## Build locally
+## Build
 
 ```bash
 cmake -S . -B build -GNinja
@@ -59,23 +25,15 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Run the sample tool
+## Tools
+
+Create a sample vault and print a summary:
 
 ```bash
 ./build/wayvault-make-sample /tmp/sample.wvl
 ./build/wayvault-dump /tmp/sample.wvl
 ```
 
-## Fuzzing integration
+## Developer checks
 
-ClusterFuzzLite should run `.clusterfuzzlite/build.sh`. The script builds all
-fuzz targets into `$OUT` and links them with `$LIB_FUZZING_ENGINE`.
-
-Current harnesses:
-
-- `container_fuzzer`: parses full containers and builds the lookup index.
-- `tile_fuzzer`: decodes tile payloads through normal decoder APIs.
-- `metadata_fuzzer`: parses metadata and string-table references.
-- `stream_fuzzer`: executes command-stream sessions through the shared tile cache.
-
-Seed corpora are under `fuzz/corpus/<target>/`.
+The repository includes deterministic unit tests, sample builders, and libFuzzer entry points used during reliability testing. The ClusterFuzzLite files live under `.clusterfuzzlite/`; they are developer infrastructure and are not required by normal users of the library.

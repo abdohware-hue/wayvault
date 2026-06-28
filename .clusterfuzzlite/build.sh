@@ -40,11 +40,7 @@ for src in "${COMMON_SRC[@]}"; do
 done
 
 for target in container tile metadata stream; do
-  "$CXX" $CXXFLAGS "${COMMON_FLAGS[@]}" \
-    "$PROJECT/fuzz/${target}_fuzzer.cc" \
-    "${COMMON_OBJECTS[@]}" \
-    $LIB_FUZZING_ENGINE \
-    -o "$OUT/${target}_fuzzer"
+  "$CXX" $CXXFLAGS "${COMMON_FLAGS[@]}"     "$PROJECT/fuzz/${target}_fuzzer.cc"     "${COMMON_OBJECTS[@]}"     $LIB_FUZZING_ENGINE     -o "$OUT/${target}_fuzzer"
 done
 
 if [ -f "$PROJECT/fuzz/dictionary.txt" ]; then
