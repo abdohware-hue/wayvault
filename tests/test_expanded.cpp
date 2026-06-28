@@ -5,6 +5,16 @@
 #include <vector>
 
 #include "wayvault/atlas_packer.h"
+#include "wayvault/viewport.h"
+#include "wayvault/tile_priority.h"
+#include "wayvault/symbolizer.h"
+#include "wayvault/spatial_index.h"
+#include "wayvault/retention_policy.h"
+#include "wayvault/projection.h"
+#include "wayvault/network_trace.h"
+#include "wayvault/field_codec.h"
+#include "wayvault/asset_bundle.h"
+#include "wayvault/annotation_layer.h"
 #include "wayvault/compression.h"
 #include "wayvault/geo_tile.h"
 #include "wayvault/geometry.h"
@@ -105,5 +115,67 @@ int main() {
   auto flat = flatten_scene(scene);
   assert(flat.size() == 2);
   assert(scene_hash(flat) != 0);
+
+
+  std::vector<GeoPoint> geo_path = {{31.2, 30.0}, {31.25, 30.05}, {31.3, 30.08}};
+  auto projection_samples = sample_projection_path(geo_path, 10);
+  assert(projection_samples.size() == geo_path.size());
+  assert(approximate_path_meters(geo_path) > 1000.0);
+  assert(projection_hash(projection_samples) != 0);
+
+  ViewportState view{{31.25, 30.04}, 10, 800, 600, 15.0, 20.0};
+  ScreenPoint screen = project_to_screen(view, geo_path.front());
+  GeoPoint back = unproject_from_screen(view, screen);
+  assert(std::abs(back.lon - geo_path.front().lon) < 0.1);
+  auto view_tiles = visible_tiles(view, 128);
+  assert(!view_tiles.empty());
+  assert(viewport_hash(view, view_tiles) != 0);
+
+  auto requests = build_view_requests(view, 4096);
+  RequestBatch batch = select_request_batch(requests, RequestBudget{16, 65536, false}, view.zoom);
+  assert(!batch.requests.empty());
+  assert(request_batch_hash(batch) != 0);
+
+  std::vector<uint8_t> field_bytes;
+  write_string_field(1, "cairo", field_bytes);
+  write_sint_field(2, -42, field_bytes);
+  DecodedFields fields = decode_fields(field_bytes);
+  assert(fields.complete);
+  assert(filter_fields(fields, 1).size() == 1);
+  assert(fields_hash(fields) != 0);
+
+  SpatialIndex spatial = build_spatial_index(parse_spatial_features("a|0|0|10|10|1\nb|5|5|20|20|2\n"), 8.0);
+  auto spatial_hits = spatial.search(SpatialQuery{Bounds2{4, 4, 12, 12, true}, 0xffffffffu, 10});
+  assert(spatial_hits.size() == 2);
+  assert(spatial_index_hash(spatial) != 0);
+
+  BundleArchive bundle = build_bundle({{"style/main.json", "application/json", {1, 2, 3}, 0}, {"glyph/a.pbf", "application/x-protobuf", {4, 5}, 0}}, 4);
+  BundleAsset extracted;
+  assert(extract_asset(bundle, "style/main.json", extracted));
+  BundleArchive reread = read_bundle_manifest(write_bundle_manifest(bundle), bundle.payload);
+  assert(bundle_hash(reread) == bundle_hash(bundle));
+
+  AnnotationLayer annotations = parse_annotation_layer("layer:notes\na|notes|1|2|kind=pin|0|10\nb|notes|5|6|kind=label|2|12\n");
+  auto visible_notes = filter_annotations(annotations, Bounds2{0, 0, 10, 10, true}, 5);
+  assert(visible_notes.size() == 2);
+  assert(annotation_layer_hash(annotations) != 0);
+
+  auto rules = parse_retention_rules("prefix=tile/ min_zoom=0 max_zoom=12 max_age=3600\nprefix=style/ pinned=1\n");
+  std::vector<RetentionCandidate> candidates = {{"tile/a", 8, 1000, 7200, false}, {"style/main", 0, 300, 999999, false}};
+  auto retention = plan_retention(candidates, rules, 500);
+  assert(releasable_bytes(retention) >= 1000);
+  assert(retention_hash(retention) != 0);
+
+  Symbolizer symbolizer = parse_symbolizer("key=kind value=road symbol=line-road priority=9\nkey=kind value=water symbol=fill-water priority=5\n");
+  auto symbols = symbolize_many(symbolizer, {{"f1", {{"kind", "road"}}}, {"f2", {{"kind", "park"}}}});
+  assert(symbols.front().symbol == "line-road");
+  assert(symbolizer_hash(symbols) != 0);
+
+  auto trace = parse_trace_log("100,get,tile/a,200,200\n250,get,tile/b,300,404\n1000,put,tile/c,500,200\n");
+  TraceSummary trace_summary = summarize_trace(trace);
+  assert(trace_summary.transferred_bytes == 1000);
+  assert(!slow_trace_events(trace, 500).empty());
+  assert(trace_hash(trace) != 0);
+
   return 0;
 }
